@@ -15,6 +15,11 @@ extractBtn.addEventListener('click', async () => {
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+  if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+    statusEl.textContent = 'Cannot extract from this page.';
+    return;
+  }
+
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: extractQuestion,
@@ -37,13 +42,39 @@ extractBtn.addEventListener('click', async () => {
 });
 
 copyHtmlBtn.addEventListener('click', async () => {
-  statusEl.textContent = 'Copying page HTML...';
+  statusEl.textContent = 'Saving page HTML...';
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+  if (!tab?.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+    statusEl.textContent = 'Cannot extract from this page.';
+    return;
+  }
+
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: () => document.documentElement.outerHTML,
+    func: () => {
+      const html = document.documentElement.cloneNode(true);
+      // Inline iframe content where accessible (same-origin)
+      const iframes = document.querySelectorAll('iframe');
+      const clonedIframes = html.querySelectorAll('iframe');
+      iframes.forEach((iframe, i) => {
+        try {
+          const iframeDoc = iframe.contentDocument;
+          if (iframeDoc) {
+            const div = document.createElement('div');
+            div.setAttribute('data-iframe-src', iframe.src || '');
+            div.setAttribute('data-iframe-title', iframe.title || '');
+            div.className = 'captured-iframe-content';
+            div.innerHTML = iframeDoc.documentElement.outerHTML;
+            clonedIframes[i].replaceWith(div);
+          }
+        } catch (e) {
+          // Cross-origin iframe, leave as-is
+        }
+      });
+      return html.outerHTML;
+    },
   });
 
   if (!result) {
@@ -51,9 +82,21 @@ copyHtmlBtn.addEventListener('click', async () => {
     return;
   }
 
+  // Copy to clipboard
   await navigator.clipboard.writeText(result);
+
+  // Download as HTML file
+  const blob = new Blob([result], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.download = `page-${timestamp}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+
   const size = (result.length / 1024).toFixed(0);
-  statusEl.textContent = `Copied full page HTML (${size} KB) to clipboard.`;
+  statusEl.textContent = `Saved & copied page HTML (${size} KB).`;
 });
 
 exportBtn.addEventListener('click', async () => {
