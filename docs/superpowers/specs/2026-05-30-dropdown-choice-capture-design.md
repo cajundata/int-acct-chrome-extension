@@ -1,8 +1,32 @@
 # Capture Dropdown Choices in Save Page HTML
 
 **Date:** 2026-05-30
-**Status:** Approved
+**Status:** Implemented (v1.12.0)
 **Scope:** `popup/popup.js`, `manifest.json` (popup-only Save Page HTML path)
+
+## Update — as-shipped design (supersedes "Decisions" below where they differ)
+
+Two things were learned during implementation and changed the original design:
+
+1. **The widget never sets `aria-expanded="true"` on the cell.** Open/closed
+   state is tracked entirely off the shared listbox (`ul#listbox-id`, identified
+   by its `aria-labelledby`), not `aria-expanded`. (An earlier version gated on
+   `aria-expanded` and captured nothing — see the regression test.)
+
+2. **Lists are deduplicated by `dropdownid` and stored once in a keyed
+   library**, not injected into every cell. A cell's `dropdownid` attribute
+   identifies its option set: every cell sharing a `dropdownid` renders the same
+   options (e.g. a journal-entry chart of accounts repeated across ~95 cells,
+   all `dropdownid="3"`). So each distinct `dropdownid` is opened/read **once**
+   into a single `#codex-captured-choices-library` section
+   (`<div class="codex-captured-choices" data-dropdownid="N">…</div>` per list);
+   cells keep their existing `dropdownid` attribute as the join key. This turns
+   a 95-cell journal entry from 95 dropdown opens into 1.
+
+The safety invariant (only open to read, never click an `<li>`, never alter the
+student's answer) and the deterministic "hide the shared popup after capture"
+cleanup are unchanged. A standalone jsdom regression test lives at
+`test/dropdown-capture.test.js`.
 
 ## Problem
 

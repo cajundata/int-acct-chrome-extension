@@ -108,6 +108,35 @@ copyHtmlBtn.addEventListener('click', async () => {
         );
       }
 
+      // A dropdown cell's option list is identified by its `dropdownid`
+      // attribute: every cell sharing a dropdownid renders the SAME options
+      // (e.g. a journal-entry chart of accounts repeated on dozens of cells all
+      // carry dropdownid="3"). So we capture each distinct dropdownid ONCE into
+      // a per-document library, keyed by data-dropdownid, instead of opening
+      // every cell — a 95-cell journal entry becomes a single dropdown open.
+      const codexChoiceLibraries = new WeakMap();
+      function getChoiceLibrary(doc) {
+        let lib = codexChoiceLibraries.get(doc);
+        if (!lib) {
+          // Drop any library left over from a previous save on this page so we
+          // don't append duplicates when Save is clicked twice without a reload.
+          const stale = doc.getElementById('codex-captured-choices-library');
+          if (stale) stale.remove();
+
+          const host = doc.createElement('div');
+          host.id = 'codex-captured-choices-library';
+          host.style.marginTop = '24px';
+          const heading = doc.createElement('h2');
+          heading.textContent = 'Captured Dropdown Choices';
+          host.appendChild(heading);
+          (doc.body || doc.documentElement).appendChild(host);
+
+          lib = { ids: new Set(), host };
+          codexChoiceLibraries.set(doc, lib);
+        }
+        return lib;
+      }
+
       async function captureDropdownChoices(doc, root) {
         if (!root) return;
         const cells = Array.from(root.querySelectorAll('td.dropDownList[dropdowntype]'));
@@ -129,9 +158,17 @@ copyHtmlBtn.addEventListener('click', async () => {
           return ul;
         };
 
+        const lib = getChoiceLibrary(doc);
+
         for (const cell of cells) {
-          // Panels can be revisited; don't capture the same cell twice.
-          if (cell.querySelector(':scope > .codex-captured-choices')) continue;
+          // Capture each distinct dropdownid once — all cells with the same id
+          // render identical options. Cells without a dropdownid are keyed
+          // individually by cell id. Mark the key as handled before opening so a
+          // 95-cell journal entry never retries 95 times if its list won't open.
+          const dropdownId = cell.getAttribute('dropdownid') || '';
+          const key = dropdownId ? `id:${dropdownId}` : `cell:${cell.id || ''}`;
+          if (lib.ids.has(key)) continue;
+          lib.ids.add(key);
 
           const cellId = cell.id || '';
 
@@ -157,11 +194,16 @@ copyHtmlBtn.addEventListener('click', async () => {
             const capturedList = listbox.cloneNode(true);
             capturedList.removeAttribute('id');
             capturedList.removeAttribute('tabindex');
+            // aria-labelledby points at the one cell we opened; meaningless once
+            // the list is stored once for the whole dropdownid group.
+            capturedList.removeAttribute('aria-labelledby');
 
             const wrapper = doc.createElement('div');
             wrapper.className = 'codex-captured-choices';
+            if (dropdownId) wrapper.setAttribute('data-dropdownid', dropdownId);
+            else if (cellId) wrapper.setAttribute('data-cell-id', cellId);
             wrapper.appendChild(capturedList);
-            cell.appendChild(wrapper);
+            lib.host.appendChild(wrapper);
           }
 
           // Dismiss this cell's listbox so the next cell can take over the
@@ -182,7 +224,7 @@ copyHtmlBtn.addEventListener('click', async () => {
         // The widget gives no reliable closed-state signal, so a listbox may
         // still be showing. Hide the shared container so the open popup doesn't
         // leak into the serialized snapshot — its options are already captured
-        // inside each cell.
+        // in the choices library.
         const trailing = doc.querySelector('ul#listbox-id[role="listbox"]');
         const trailingContainer = trailing && trailing.closest('.listContainer');
         if (trailingContainer) trailingContainer.style.display = 'none';
