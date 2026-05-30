@@ -108,6 +108,86 @@ copyHtmlBtn.addEventListener('click', async () => {
         );
       }
 
+      async function captureDropdownChoices(doc, root) {
+        if (!root) return;
+        const cells = Array.from(root.querySelectorAll('td.dropDownList[dropdowntype]'));
+        if (!cells.length) return;
+
+        // This widget renders every cell's options into ONE shared container
+        // (ul#listbox-id) and — crucially — does NOT toggle the cell's
+        // aria-expanded, so we can't use that to detect open/closed. Instead we
+        // drive entirely off the shared listbox: its aria-labelledby names the
+        // cell that currently owns it, which is how we know this cell's options
+        // have rendered (and aren't a stale list left by a previous cell).
+        const listboxFor = cellId => {
+          const ul = doc.querySelector('ul#listbox-id[role="listbox"]');
+          if (!ul) return null;
+          if (cellId && ul.getAttribute('aria-labelledby') !== cellId) return null;
+          const container = ul.closest('.listContainer');
+          if (container && container.style.display === 'none') return null;
+          if (!ul.querySelector('li')) return null;
+          return ul;
+        };
+
+        for (const cell of cells) {
+          // Panels can be revisited; don't capture the same cell twice.
+          if (cell.querySelector(':scope > .codex-captured-choices')) continue;
+
+          const cellId = cell.id || '';
+
+          // Open the dropdown so its options render into the shared listbox. A
+          // plain click usually does it; if this cell's listbox hasn't appeared
+          // shortly after, fall back to a full mouse sequence and wait longer.
+          cell.click();
+          let listbox = await waitFor(() => listboxFor(cellId), 800);
+          if (!listbox) {
+            for (const type of ['mousedown', 'mouseup', 'click']) {
+              cell.dispatchEvent(new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                view: doc.defaultView,
+              }));
+            }
+            listbox = await waitFor(() => listboxFor(cellId), 4000);
+          }
+
+          if (listbox) {
+            // Read only — clone the rendered options. NEVER click an <li>:
+            // clicking selects that option and overwrites the student's answer.
+            const capturedList = listbox.cloneNode(true);
+            capturedList.removeAttribute('id');
+            capturedList.removeAttribute('tabindex');
+
+            const wrapper = doc.createElement('div');
+            wrapper.className = 'codex-captured-choices';
+            wrapper.appendChild(capturedList);
+            cell.appendChild(wrapper);
+          }
+
+          // Dismiss this cell's listbox so the next cell can take over the
+          // shared container. Escape first; if it's ignored, click away. Never
+          // re-click the cell — that can reopen it.
+          cell.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape',
+            keyCode: 27,
+            bubbles: true,
+          }));
+          const dismissed = await waitFor(() => !listboxFor(cellId), 600);
+          if (!dismissed && doc.body) {
+            doc.body.click();
+            await waitFor(() => !listboxFor(cellId), 600);
+          }
+        }
+
+        // The widget gives no reliable closed-state signal, so a listbox may
+        // still be showing. Hide the shared container so the open popup doesn't
+        // leak into the serialized snapshot — its options are already captured
+        // inside each cell.
+        const trailing = doc.querySelector('ul#listbox-id[role="listbox"]');
+        const trailingContainer = trailing && trailing.closest('.listContainer');
+        if (trailingContainer) trailingContainer.style.display = 'none';
+      }
+
       async function clickTabAndWait(doc, tab, panel) {
         const previousSignature = getPanelSignature(panel);
         const previousActiveId = getActiveTab(doc)?.id || '';
@@ -161,6 +241,7 @@ copyHtmlBtn.addEventListener('click', async () => {
 
         for (const tab of tabs) {
           await clickTabAndWait(doc, tab, panel);
+          await captureDropdownChoices(doc, panel);
 
           const snapshot = doc.createElement('section');
           snapshot.className = 'captured-tab-panel';
@@ -195,6 +276,7 @@ copyHtmlBtn.addEventListener('click', async () => {
             if (!iframeDoc?.documentElement) continue;
 
             await captureAccountingToolTabs(iframeDoc);
+            await captureDropdownChoices(iframeDoc, iframeDoc.body);
 
             const iframeHtml = await serializeDocument(iframeDoc);
             const replacement = rootClone.ownerDocument.createElement('div');
@@ -211,6 +293,7 @@ copyHtmlBtn.addEventListener('click', async () => {
         return rootClone.outerHTML;
       }
 
+      await captureDropdownChoices(document, document.body);
       return serializeDocument(document);
     },
   });
