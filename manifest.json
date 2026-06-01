@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Question Extractor",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "Extracts questions from web pages to assist with school work",
   "permissions": ["activeTab", "scripting", "storage"],
   "action": {

@@ -663,6 +663,22 @@ function extractQuestion() {
       return { type, title: null, prompt, choices: [], requirements: [] };
     }
 
+    if (type === 'sortable') {
+      const sortableEl = dlcContainer.querySelector('.sortable-component');
+      const promptEl = (sortableEl || dlcContainer).querySelector('.prompt');
+      const prompt = promptEl ? promptEl.innerText.trim() : '';
+
+      // Items appear in scrambled presentation order (the correct sequence is
+      // not exposed in the DOM). Target `.content` to skip the sibling
+      // `_visuallyHidden` "Choice N of M … toggle button" text.
+      const itemEls = (sortableEl || dlcContainer).querySelectorAll('.choice-item .content');
+      const choices = Array.from(itemEls)
+        .map(el => el.innerText.trim())
+        .filter(Boolean);
+
+      return { type, title: null, prompt, choices, requirements: [] };
+    }
+
     const promptEl = dlcContainer.querySelector('.prompt');
     const prompt = promptEl ? promptEl.innerText.trim() : '';
 
